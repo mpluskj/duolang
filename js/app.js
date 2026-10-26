@@ -5,13 +5,15 @@ window.DL = window.DL || {};
   var app = document.getElementById("app");
   var toastRoot = document.getElementById("toast-root");
   var installPrompt = null;
+  DL.hasInstallPrompt = function () { return !!installPrompt; };
 
   DL.ui = {
     screen: DL.store.state.profile.onboarded ? "home" : "welcome",
     modal: null,
     onboard: { goal: 30, recommended: null },
     placement: { idx: 0, score: 0, answered: false, selected: null, done: false },
-    vocab: { query: "", filter: "all", limit: 30 }
+    vocab: { query: "", filter: "all", limit: 30 },
+    dismissInstallBanner: false
   };
 
   function applyTheme() {
@@ -518,6 +520,11 @@ window.DL = window.DL || {};
         DL.speech.say("Hi! Nice to meet you. Let's practice English together.");
         return;
 
+      case "app:dismiss-install":
+        DL.ui.dismissInstallBanner = true;
+        render();
+        return;
+
       case "app:install":
         if (installPrompt) {
           var promptEvent = installPrompt;
@@ -531,7 +538,8 @@ window.DL = window.DL || {};
         } else if (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) {
           toast("이미 앱처럼 실행 중이에요.");
         } else {
-          toast("브라우저 메뉴에서 ‘홈 화면에 추가’를 선택하세요.");
+          DL.ui.modal = { type: "installGuide" };
+          render();
         }
         return;
 
@@ -781,7 +789,7 @@ window.DL = window.DL || {};
   window.addEventListener("beforeinstallprompt", function (e) {
     e.preventDefault();
     installPrompt = e;
-    if (DL.ui.screen === "profile") render();
+    if (DL.ui.screen === "profile" || DL.ui.screen === "home") render();
   });
 
   window.addEventListener("appinstalled", function () {

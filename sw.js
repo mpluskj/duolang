@@ -1,5 +1,5 @@
 /* DuoLang service worker — offline shell with network-first updates */
-const CACHE = "duolang-v3";
+const CACHE = "duolang-v5";
 const SHELL = [
   "./",
   "./index.html",
@@ -21,7 +21,9 @@ const SHELL = [
   "./js/views.js",
   "./js/app.js",
   "./icons/icon-192.png",
-  "./icons/icon-512.png"
+  "./icons/icon-512.png",
+  "./icons/icon-maskable-512.png",
+  "./icons/apple-touch-icon.png"
 ];
 
 self.addEventListener("install", (event) => {

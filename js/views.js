@@ -328,10 +328,29 @@ DL.views = (function () {
     return html;
   }
 
+  function installBanner() {
+    if (DL.ui.dismissInstallBanner) return "";
+    var isStandalone = typeof window !== "undefined" && (((window.matchMedia && window.matchMedia("(display-mode: standalone)").matches)) || window.navigator.standalone === true);
+    if (isStandalone) return "";
+
+    return '<div class="install-banner">' +
+      '<div class="ib-icon"><img src="/icons/icon-192.png" alt="DuoLang" width="40" height="40" /></div>' +
+      '<div class="ib-info">' +
+      '<div class="ib-title">DuoLang 모바일 앱으로 설치</div>' +
+      '<div class="ib-sub">홈 화면에 추가하여 전체 화면으로 빠르게 학습하세요!</div>' +
+      '</div>' +
+      '<div class="ib-actions">' +
+      '<button class="btn primary sm" data-action="app:install">설치</button>' +
+      '<button class="icon-btn xs" data-action="app:dismiss-install" aria-label="닫기">' + icon("close") + '</button>' +
+      '</div>' +
+      '</div>';
+  }
+
   function home() {
     var lp = DL.store.levelProgress(DL.store.state.profile.level);
     var current = DL.store.nextLesson(DL.store.state.profile.level);
     return shell(hero() +
+      installBanner() +
       '<div class="dash-grid">' + goalCard() + reviewCard() + streakCard() + "</div>" +
       '<div class="section-head" style="margin-top:26px"><h2>학습 경로</h2><span class="sub">' + lp.done + " / " + lp.total + " 레슨 완료</span></div>" +
       path() +
@@ -689,6 +708,7 @@ DL.views = (function () {
     if (m.type === "guide") inner = guideModal(m.unitId);
     else if (m.type === "level") inner = levelModal();
     else if (m.type === "geminiKeys") inner = geminiKeysModal();
+    else if (m.type === "installGuide") inner = installGuideModal();
     else if (m.type === "reset") {
       inner = '<div class="modal-top"><div><h2>학습 기록 초기화</h2><p>이 작업은 되돌릴 수 없어요.</p></div>' +
         '<button class="icon-btn" data-action="modal:close" aria-label="닫기">' + icon("close") + "</button></div>" +
@@ -697,6 +717,83 @@ DL.views = (function () {
         '<button class="btn ghost wide" data-action="modal:close">취소</button></div>';
     }
     return '<div class="modal-root"><div class="modal-backdrop" data-action="modal:close"></div><div class="modal-card">' + inner + "</div></div>";
+  }
+
+  function installGuideModal() {
+    var isIOS = typeof navigator !== "undefined" && /iphone|ipad|ipod/i.test(navigator.userAgent || "");
+    var isAndroid = typeof navigator !== "undefined" && /android/i.test(navigator.userAgent || "");
+    var isStandalone = typeof window !== "undefined" && (((window.matchMedia && window.matchMedia("(display-mode: standalone)").matches)) || window.navigator.standalone === true);
+    var hasPrompt = DL.hasInstallPrompt && DL.hasInstallPrompt();
+
+    var guideSteps = "";
+    if (isStandalone) {
+      guideSteps = '<div style="text-align:center;padding:20px 0">' +
+        '<div style="font-size:42px;margin-bottom:8px">🎉</div>' +
+        '<div style="font-size:16px;font-weight:900;color:var(--text)">이미 앱으로 설치되어 실행 중이에요!</div>' +
+        '<div style="font-size:13px;color:var(--text-soft);margin-top:4px">홈 화면의 DuoLang 아이콘으로 언제든 바로 접속할 수 있습니다.</div>' +
+        '</div>';
+    } else if (isIOS) {
+      guideSteps = '<div class="install-steps">' +
+        '<div class="install-step-item">' +
+        '<div class="install-step-num">1</div>' +
+        '<div class="install-step-info">Safari 하단 툴바의 <b>공유 버튼</b> (<span style="font-size:15px;color:var(--blue)">⎋</span> 또는 <span style="font-size:15px;color:var(--blue)">↑</span>)을 탭합니다.</div>' +
+        '</div>' +
+        '<div class="install-step-item">' +
+        '<div class="install-step-num">2</div>' +
+        '<div class="install-step-info">공유 시트 메뉴에서 <b>‘홈 화면에 추가’ (➕)</b>를 누릅니다.</div>' +
+        '</div>' +
+        '<div class="install-step-item">' +
+        '<div class="install-step-num">3</div>' +
+        '<div class="install-step-info">우측 상단의 <b>‘추가’</b>를 누르면 홈 화면에 DuoLang 고화질 앱 아이콘이 생성됩니다!</div>' +
+        '</div>' +
+        '</div>';
+    } else if (isAndroid) {
+      guideSteps = '<div class="install-steps">' +
+        (hasPrompt ? '<div style="margin-bottom:12px"><button class="btn primary wide big" data-action="app:install">📱 지금 바로 앱 설치하기</button></div>' : '') +
+        '<div class="install-step-item">' +
+        '<div class="install-step-num">1</div>' +
+        '<div class="install-step-info">Chrome 브라우저 우측 상단 <b>더보기 메뉴 (⋮)</b>를 탭합니다.</div>' +
+        '</div>' +
+        '<div class="install-step-item">' +
+        '<div class="install-step-num">2</div>' +
+        '<div class="install-step-info"><b>‘앱 설치’</b> 또는 <b>‘홈 화면에 추가’</b>를 선택합니다.</div>' +
+        '</div>' +
+        '<div class="install-step-item">' +
+        '<div class="install-step-num">3</div>' +
+        '<div class="install-step-info">설치 팝업에서 <b>‘설치’</b>를 누르면 홈 화면 및 앱 서랍에 추가됩니다.</div>' +
+        '</div>' +
+        '</div>';
+    } else {
+      guideSteps = '<div class="install-steps">' +
+        (hasPrompt ? '<div style="margin-bottom:12px"><button class="btn primary wide big" data-action="app:install">🖥️ 지금 바로 앱 설치하기</button></div>' : '') +
+        '<div class="install-step-item">' +
+        '<div class="install-step-num">1</div>' +
+        '<div class="install-step-info">브라우저 상단 주소창 우측의 <b>설치 아이콘 (🖥️ 또는 ⬇️)</b>을 클릭합니다.</div>' +
+        '</div>' +
+        '<div class="install-step-item">' +
+        '<div class="install-step-num">2</div>' +
+        '<div class="install-step-info"><b>‘DuoLang 앱 설치’</b> 팝업에서 <b>‘설치’</b>를 누릅니다.</div>' +
+        '</div>' +
+        '<div class="install-step-item">' +
+        '<div class="install-step-num">3</div>' +
+        '<div class="install-step-info">독립된 전용 창으로 실행되어 언제든 빠르게 학습할 수 있습니다.</div>' +
+        '</div>' +
+        '</div>';
+    }
+
+    return '<div class="modal-top"><div><div class="unit-kicker" style="color:var(--green-d)">PWA 모바일 웹앱</div>' +
+      '<h2>📲 DuoLang 앱 설치 가이드</h2>' +
+      '<p>웹앱으로 설치하면 주소창 없이 전체 화면으로 네이티브 앱처럼 학습할 수 있어요.</p></div>' +
+      '<button class="icon-btn" data-action="modal:close" aria-label="닫기">' + icon("close") + '</button></div>' +
+      '<div class="install-preview-card">' +
+      '<img src="/icons/icon-192.png" alt="DuoLang 아이콘" width="56" height="56" class="install-preview-icon" />' +
+      '<div>' +
+      '<div style="font-weight:900;font-size:16px;color:var(--text)">DuoLang (듀오랭)</div>' +
+      '<div style="font-size:12px;color:var(--text-soft);margin-top:2px">오프라인 지원 · 전체 화면 몰입 모드 · 전용 앱 아이콘</div>' +
+      '</div></div>' +
+      guideSteps +
+      '<div class="heart-actions" style="margin-top:16px">' +
+      '<button class="btn ghost wide" data-action="modal:close">닫기</button></div>';
   }
 
   function geminiKeysModal() {
@@ -835,8 +932,8 @@ DL.views = (function () {
         return '<div class="g-line"><b>' + esc(l.who) + "</b><span>" + esc(l.en) + "<em>" + esc(l.ko) + "</em></span>" +
           '<button class="speak-btn plain" style="padding:4px;border:0;background:none" data-action="say" data-text="' + esc(l.en) + '" aria-label="듣기">' + icon("speaker") + "</button></div>";
       }).join("") + "</div></div>" +
-      '<div class="heart-actions" style="margin-top:16px">' +
-      '<button class="btn blue wide" data-action="roleplay:start" data-id="' + u.id + '-d0">🎭 이 대화로 롤플레잉 시작하기</button>' +
+      '<div class="heart-actions" style="margin-top:20px;padding-bottom:14px">' +
+      '<button class="btn blue wide" style="font-size:15px;padding:14px 16px" data-action="roleplay:start" data-id="' + u.id + '-d0">🎭 이 대화로 롤플레잉 시작하기</button>' +
       '<button class="btn primary wide big" data-action="guide:start" data-id="' + firstIncomplete.id + '">' +
       (up.done ? (up.done === up.total ? "이 유닛 다시 학습하기" : "이어서 학습하기") : "이 유닛 시작하기") + "</button>" +
       '<button class="btn ghost wide" data-action="modal:close">닫기</button></div>';
