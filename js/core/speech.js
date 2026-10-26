@@ -199,6 +199,7 @@ DL.speech = (function () {
     var token = ++sayToken;
     try { if (synth) synth.cancel(); } catch (e) {}
     stopOnline();
+    stopUserVoice();
     if (engineFor() === "online" && speakOnline(clean, opts, token)) return;
     speakDevice(clean, opts, token);
   }
@@ -206,6 +207,7 @@ DL.speech = (function () {
   function stop() {
     sayToken++;
     stopOnline();
+    stopUserVoice();
     if (synth) { try { synth.cancel(); } catch (e) {} }
     stopListening();
   }
@@ -214,11 +216,97 @@ DL.speech = (function () {
     return !!(window.SpeechRecognition || window.webkitSpeechRecognition);
   }
 
+  function needsHttps() {
+    if (window.isSecureContext) return false;
+    var host = window.location.hostname;
+    if (host === "localhost" || host === "127.0.0.1" || host === "::1") return false;
+    return true;
+  }
+
+  var mediaRecorder = null;
+  var recordedChunks = [];
+  var lastUserAudioUrl = null;
+  var micStream = null;
+
+  function initMediaRecording() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || typeof MediaRecorder === "undefined") return;
+    navigator.mediaDevices.getUserMedia({ audio: true }).then(function (stream) {
+      micStream = stream;
+      recordedChunks = [];
+      try {
+        var mime = MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" :
+                   MediaRecorder.isTypeSupported("audio/mp4") ? "audio/mp4" : "";
+        mediaRecorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+        mediaRecorder.ondataavailable = function (e) {
+          if (e.data && e.data.size > 0) recordedChunks.push(e.data);
+        };
+        mediaRecorder.start();
+      } catch (err) {}
+    }).catch(function () {});
+  }
+
+  function finishMediaRecording(cb) {
+    if (mediaRecorder && mediaRecorder.state !== "inactive") {
+      mediaRecorder.onstop = function () {
+        var mime = (mediaRecorder && mediaRecorder.mimeType) || "audio/webm";
+        var blob = new Blob(recordedChunks, { type: mime });
+        if (lastUserAudioUrl) {
+          try { URL.revokeObjectURL(lastUserAudioUrl); } catch (e) {}
+        }
+        lastUserAudioUrl = URL.createObjectURL(blob);
+        if (micStream) {
+          try { micStream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) {}
+          micStream = null;
+        }
+        if (cb) cb(lastUserAudioUrl);
+      };
+      try { mediaRecorder.stop(); } catch (e) { if (cb) cb(null); }
+    } else {
+      if (micStream) {
+        try { micStream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) {}
+        micStream = null;
+      }
+      if (cb) cb(lastUserAudioUrl);
+    }
+  }
+
+  var currentUserAudio = null;
+
+  function stopUserVoice() {
+    if (currentUserAudio) {
+      try {
+        currentUserAudio.pause();
+        currentUserAudio.currentTime = 0;
+        currentUserAudio.onended = null;
+      } catch (e) {}
+      currentUserAudio = null;
+    }
+  }
+
+  function playUserVoice(onEnd) {
+    if (!lastUserAudioUrl) return false;
+    stop(); // stop any TTS
+    stopUserVoice();
+    var a = new Audio(lastUserAudioUrl);
+    currentUserAudio = a;
+    a.onended = function () {
+      currentUserAudio = null;
+      if (onEnd) onEnd();
+    };
+    a.play().catch(function () {});
+    return true;
+  }
+
+  function hasUserVoice() {
+    return !!lastUserAudioUrl;
+  }
+
   function listen(handlers) {
     handlers = handlers || {};
     var Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!Rec) { if (handlers.onUnsupported) handlers.onUnsupported(); return false; }
     stopListening();
+    initMediaRecording();
     try {
       recognition = new Rec();
       recognition.lang = "en-US";
@@ -240,16 +328,22 @@ DL.speech = (function () {
         } catch (e) {}
         done = true;
         listening = false;
-        if (handlers.onResult) handlers.onResult(best || "");
+        finishMediaRecording(function () {
+          if (handlers.onResult) handlers.onResult(best || "");
+        });
       };
       recognition.onerror = function (ev) {
         done = true; listening = false;
-        if (handlers.onError) handlers.onError(ev && ev.error ? ev.error : "error");
+        finishMediaRecording(function () {
+          if (handlers.onError) handlers.onError(ev && ev.error ? ev.error : "error");
+        });
       };
       recognition.onend = function () {
         listening = false;
-        if (!done && handlers.onEnd) handlers.onEnd();
-        if (handlers.onDone) handlers.onDone();
+        finishMediaRecording(function () {
+          if (!done && handlers.onEnd) handlers.onEnd();
+          if (handlers.onDone) handlers.onDone();
+        });
       };
       recognition.start();
       setTimeout(function () {
@@ -258,6 +352,7 @@ DL.speech = (function () {
       return true;
     } catch (e) {
       listening = false;
+      finishMediaRecording();
       if (handlers.onError) handlers.onError("not-allowed");
       return false;
     }
@@ -268,6 +363,7 @@ DL.speech = (function () {
       try { recognition.abort(); } catch (e) {}
     }
     listening = false;
+    finishMediaRecording();
   }
 
   function isListening() { return listening; }
@@ -309,6 +405,68 @@ DL.speech = (function () {
     return Math.min(1, lcs * 0.75 + charScore * 0.25);
   }
 
+  function editDistance(a, b) {
+    if (a === b) return 0;
+    var d = [];
+    for (var i = 0; i <= a.length; i++) { d[i] = [i]; }
+    for (var j = 0; j <= b.length; j++) { d[0][j] = j; }
+    for (i = 1; i <= a.length; i++) {
+      for (j = 1; j <= b.length; j++) {
+        var cost = a[i - 1] === b[j - 1] ? 0 : 1;
+        d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost);
+      }
+    }
+    return d[a.length][b.length];
+  }
+
+  function compareWords(target, heard) {
+    var rawWords = String(target || "").trim().split(/\s+/).filter(Boolean);
+    var normTarget = rawWords.map(function (w) { return normalize(w); });
+    var normHeard = normalize(heard).split(" ").filter(Boolean);
+
+    if (!normHeard.length) {
+      return rawWords.map(function (w) { return { word: w, status: "miss" }; });
+    }
+
+    var heardUsed = new Array(normHeard.length).fill(false);
+    var results = new Array(rawWords.length);
+
+    for (var i = 0; i < normTarget.length; i++) {
+      var tw = normTarget[i];
+      for (var j = 0; j < normHeard.length; j++) {
+        if (!heardUsed[j] && normHeard[j] === tw) {
+          heardUsed[j] = true;
+          results[i] = { word: rawWords[i], status: "match" };
+          break;
+        }
+      }
+    }
+
+    for (i = 0; i < normTarget.length; i++) {
+      if (results[i]) continue;
+      tw = normTarget[i];
+      var bestIdx = -1;
+      var bestDist = 999;
+      for (j = 0; j < normHeard.length; j++) {
+        if (!heardUsed[j]) {
+          var dist = editDistance(tw, normHeard[j]);
+          var threshold = tw.length >= 5 ? 2 : 1;
+          if (dist <= threshold && dist < bestDist) {
+            bestDist = dist;
+            bestIdx = j;
+          }
+        }
+      }
+      if (bestIdx !== -1) {
+        heardUsed[bestIdx] = true;
+        results[i] = { word: rawWords[i], status: "close" };
+      } else {
+        results[i] = { word: rawWords[i], status: "miss" };
+      }
+    }
+    return results;
+  }
+
   /* tiny synth SFX */
   function ctx() {
     if (!audioCtx) {
@@ -342,14 +500,26 @@ DL.speech = (function () {
       else if (name === "wrong") { tone(180, 0, 0.2, 0.08, "triangle"); tone(140, 0.12, 0.22, 0.06, "triangle"); }
       else if (name === "complete") { tone(523, 0, 0.14, 0.09); tone(659, 0.12, 0.14, 0.09); tone(784, 0.24, 0.24, 0.09); }
       else if (name === "tap") { tone(420, 0, 0.05, 0.04); }
+      else if (name === "tick") { tone(720, 0, 0.035, 0.04); }
     } catch (e) {}
   }
 
+  function unlockAudio() {
+    var c = ctx();
+    if (c && c.state === "suspended") {
+      try { c.resume(); } catch (e) {}
+    }
+    if (synth && synth.getVoices) {
+      try { synth.getVoices(); } catch (e) {}
+    }
+  }
+
   return {
-    available: available, say: say, stop: stop, canListen: canListen,
+    available: available, say: say, stop: stop, canListen: canListen, needsHttps: needsHttps,
     listen: listen, stopListening: stopListening, isListening: isListening,
-    similarity: similarity, normalize: normalize, sound: sound,
+    playUserVoice: playUserVoice, hasUserVoice: hasUserVoice,
+    similarity: similarity, compareWords: compareWords, normalize: normalize, sound: sound,
     voiceOptions: voiceOptions, bestVoiceLabel: bestVoiceLabel,
-    onlineAvailable: onlineAvailable, ONLINE_URI: ONLINE_URI
+    onlineAvailable: onlineAvailable, ONLINE_URI: ONLINE_URI, unlockAudio: unlockAudio
   };
 })();

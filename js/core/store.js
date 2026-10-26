@@ -24,8 +24,8 @@ DL.store = (function () {
       lessons: {},
       words: {},
       achievements: {},
-      settings: { sound: true, heartsOn: true, rate: 0.95, theme: "light", autoAudio: true, reduceMotion: false, voiceURI: "" },
-      stats: { correct: 0, answered: 0, minutes: 0, speaking: 0, reviews: 0, perfectLessons: 0, lessonsDone: 0 }
+      settings: { sound: true, heartsOn: true, rate: 0.95, theme: "light", autoAudio: true, reduceMotion: false, voiceURI: "", geminiKeys: [] },
+      stats: { correct: 0, answered: 0, minutes: 0, speaking: 0, reviews: 0, perfectLessons: 0, lessonsDone: 0, roleplays: 0, rapid: 0, aiChats: 0 }
     };
   }
 
@@ -290,8 +290,68 @@ DL.store = (function () {
   function weakWords(limit) {
     var list = Object.keys(state.words).map(function (id) { return state.words[id]; })
       .filter(function (w) { return (w.wrong || 0) > 0; })
-      .sort(function (a, b) { return (b.wrong - b.correct) - (a.wrong - a.correct) || b.wrong - a.wrong; });
+      .sort(function (a, b) { return (b.wrong - (b.right || 0)) - (a.wrong - (a.right || 0)) || (b.wrong || 0) - (a.wrong || 0); });
     return limit ? list.slice(0, limit) : list;
+  }
+
+  function starredWords(limit) {
+    var list = Object.keys(state.words).map(function (id) { return state.words[id]; })
+      .filter(function (w) { return !!w.starred; })
+      .sort(function (a, b) { return (b.at || 0) - (a.at || 0); });
+    return limit ? list.slice(0, limit) : list;
+  }
+
+  function toggleStar(wordId) {
+    var w = state.words[wordId];
+    if (!w) {
+      if (DL.units) {
+        for (var i = 0; i < DL.units.length; i++) {
+          var u = DL.units[i];
+          for (var j = 0; j < (u.vocab || []).length; j++) {
+            if (u.vocab[j].id === wordId) {
+              addWord(u.vocab[j], true);
+              w = state.words[wordId];
+              break;
+            }
+          }
+          if (w) break;
+        }
+      }
+    }
+    if (w) {
+      w.starred = !w.starred;
+      save();
+      return w.starred;
+    }
+    return false;
+  }
+
+  function allWordsList() {
+    var wordsMap = {};
+    Object.keys(state.words).forEach(function (id) {
+      wordsMap[id] = Object.assign({}, state.words[id]);
+    });
+    if (DL.units) {
+      DL.units.forEach(function (u) {
+        (u.vocab || []).forEach(function (v) {
+          if (!wordsMap[v.id]) {
+            wordsMap[v.id] = {
+              id: v.id, en: v.en, ko: v.ko, unitId: v.unitId, level: v.level,
+              box: 0, due: "", seen: 0, right: 0, wrong: 0, starred: false, unlearned: true
+            };
+          }
+          wordsMap[v.id].unitTitle = u.title;
+          wordsMap[v.id].unitEmoji = u.emoji;
+        });
+      });
+    }
+    return Object.keys(wordsMap).map(function (k) { return wordsMap[k]; })
+      .sort(function (a, b) {
+        if (a.starred !== b.starred) return a.starred ? -1 : 1;
+        if ((a.wrong || 0) !== (b.wrong || 0)) return (b.wrong || 0) - (a.wrong || 0);
+        if (a.unlearned !== b.unlearned) return a.unlearned ? 1 : -1;
+        return (b.at || 0) - (a.at || 0);
+      });
   }
 
   function learnedWords() { return Object.keys(state.words).length; }
@@ -315,7 +375,10 @@ DL.store = (function () {
     { id: "xp500", icon: "⚡", name: "500 XP", desc: "누적 500 XP", test: function (s) { return s.xp >= 500; } },
     { id: "levelup", icon: "🏆", name: "급수 완주", desc: "한 급수 40레슨 완료", test: function () { return DL.LEVEL_IDS.some(function (l) { return completedCount(l) === DL.levelLessons(l).length; }); } },
     { id: "speak10", icon: "🎤", name: "말문이 트이다", desc: "말하기 연습 10회", test: function (s) { return (s.stats.speaking || 0) >= 10; } },
-    { id: "review25", icon: "🔁", name: "복습의 달인", desc: "복습 25회", test: function (s) { return (s.stats.reviews || 0) >= 25; } }
+    { id: "review25", icon: "🔁", name: "복습의 달인", desc: "복습 25회", test: function (s) { return (s.stats.reviews || 0) >= 25; } },
+    { id: "roleplay1", icon: "🎭", name: "티키타카 달인", desc: "첫 롤플레잉 완주", test: function (s) { return (s.stats.roleplays || 0) >= 1; } },
+    { id: "rapid5", icon: "⚡", name: "빛의 순발력", desc: "3초 순발력 드릴 5회", test: function (s) { return (s.stats.rapid || 0) >= 5; } },
+    { id: "ai1", icon: "🤖", name: "AI 프리토커", desc: "첫 AI 프리토킹 완주", test: function (s) { return (s.stats.aiChats || 0) >= 1; } }
   ];
 
   function checkAchievements() {
@@ -383,6 +446,9 @@ DL.store = (function () {
   function completeSpeaking(summary) {
     state.stats.speaking += summary.speaking || 0;
     state.stats.minutes += summary.minutes || 0;
+    if (summary.roleplay) state.stats.roleplays = (state.stats.roleplays || 0) + 1;
+    if (summary.rapid) state.stats.rapid = (state.stats.rapid || 0) + 1;
+    if (summary.aiChat) state.stats.aiChats = (state.stats.aiChats || 0) + 1;
     addXp(summary.xp || 0);
     addGems(summary.gems || 3);
     save();
@@ -393,6 +459,29 @@ DL.store = (function () {
     state = defaultState();
     try { localStorage.removeItem(KEY); } catch (e) {}
     save();
+  }
+
+  function exportData() {
+    return {
+      app: "DuoLang",
+      version: state.version || 1,
+      exportedAt: new Date().toISOString(),
+      state: state
+    };
+  }
+
+  function importData(raw) {
+    try {
+      var parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+      var data = parsed && parsed.state ? parsed.state : parsed;
+      if (!data || typeof data !== "object" || !data.profile || !data.settings) return false;
+      if (!data.days || typeof data.days !== "object") return false;
+      state = merge(defaultState(), data);
+      save();
+      return true;
+    } catch (e) {
+      return false;
+    }
   }
 
   syncHearts();
@@ -407,10 +496,12 @@ DL.store = (function () {
     streak: streak, week: week, calendar: calendar, addXp: addXp, addGems: addGems,
     completeLesson: completeLesson, addWord: addWord, reviewAnswer: reviewAnswer,
     completeReview: completeReview, completeSpeaking: completeSpeaking,
-    dueWords: dueWords, weakWords: weakWords, learnedWords: learnedWords,
+    dueWords: dueWords, weakWords: weakWords, starredWords: starredWords,
+    allWordsList: allWordsList, toggleStar: toggleStar, learnedWords: learnedWords,
     accuracy: accuracy, achievementsView: achievementsView, checkAchievements: checkAchievements,
     setLevel: setLevel, setGoal: setGoal, finishOnboarding: finishOnboarding,
     toggleSetting: toggleSetting, setSetting: setSetting, reset: reset,
+    exportData: exportData, importData: importData,
     heartInterval: HEART_MS, intervals: INTERVALS,
     get memoryOnly() { return memoryOnly; }
   };

@@ -2,6 +2,7 @@
 const http = require("http");
 const https = require("https");
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 const { URL } = require("url");
 
@@ -12,6 +13,7 @@ const types = {
   ".css": "text/css; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8",
+  ".webmanifest": "application/manifest+json; charset=utf-8",
   ".svg": "image/svg+xml",
   ".png": "image/png",
   ".ico": "image/x-icon"
@@ -55,7 +57,7 @@ function fetchTts(text, lang, speed, hosts, done) {
   });
 }
 
-http.createServer((req, res) => {
+const server = http.createServer((req, res) => {
   const parsed = new URL(req.url || "/", "http://localhost");
   const url = decodeURIComponent(parsed.pathname);
 
@@ -107,7 +109,22 @@ http.createServer((req, res) => {
     res.writeHead(200, { "Content-Type": types[path.extname(file).toLowerCase()] || "application/octet-stream" });
     res.end(data);
   });
-}).listen(port, () => {
-  console.log("DuoLang running: http://localhost:" + port);
+});
+
+server.listen(port, process.env.HOST || "0.0.0.0", () => {
+  console.log("");
+  console.log("DuoLang running");
+  console.log("  PC     : http://localhost:" + port);
+  const nets = os.networkInterfaces();
+  Object.keys(nets).forEach((name) => {
+    (nets[name] || []).forEach((net) => {
+      if (net.family === "IPv4" && !net.internal) {
+        console.log("  Mobile : http://" + net.address + ":" + port + "   (" + name + ")");
+      }
+    });
+  });
+  console.log("");
+  console.log("휴대폰이 같은 Wi-Fi에 있으면 Mobile 주소로 접속하세요.");
+  console.log("연결이 안 되면 Windows 방화벽에서 Node.js의 사설 네트워크 접속을 허용하세요.");
 });
 

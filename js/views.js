@@ -113,7 +113,7 @@ DL.views = (function () {
     return '<div class="onboard-wrap"><div class="onboard">' +
       '<div class="onboard-brand"><div class="brand-mark">D</div>Duo<span style="color:var(--green)">Lang</span></div>' +
       "<h1>6개월이면,<br><span>영어로 대화</span>할 수 있어요</h1>" +
-      '<p class="lead">매일 15분. 초급부터 고급까지 120개의 데일리 레슨으로<br>듣고, 말하고, 직접 문장을 만들어요.</p>' +
+      '<p class="lead">매일 15분. 초급부터 고급까지<br>120개 레슨으로 듣고, 말하고, 직접 문장을 만들어요.</p>' +
       '<ul class="feature-list">' +
       '<li><span class="fi">🗓️</span>24주 커리큘럼 · 급수별 8개 유닛</li>' +
       '<li><span class="fi">🗣️</span>실제 상황 대화와 말하기 연습</li>' +
@@ -121,7 +121,7 @@ DL.views = (function () {
       '<li><span class="fi">🔥</span>연속 학습·XP·업적으로 매일 습관</li>' +
       "</ul>" +
       '<button class="btn primary wide big" data-action="onboard:start">시작하기</button>' +
-      '<p class="tiny">설치 없이 브라우저에서 바로 학습할 수 있어요.<br>진행 상황은 이 기기에 자동 저장됩니다.</p>' +
+      '<p class="tiny">홈 화면에 추가하면 앱처럼 열려요.<br>진행 상황은 이 기기에 자동 저장됩니다.</p>' +
       "</div></div>";
   }
 
@@ -339,13 +339,147 @@ DL.views = (function () {
       "DuoLang · 24주 영어회화 커리큘럼 · 학습 기록은 이 브라우저에 저장됩니다.</div>");
   }
 
-  /* ---------------- practice ---------------- */
+  function vocabNotebookHTML() {
+    var vState = DL.ui.vocab || (DL.ui.vocab = { query: "", filter: "all", limit: 30 });
+    var all = DL.store.allWordsList();
+    var q = (vState.query || "").trim().toLowerCase();
+    var filter = vState.filter || "all";
+    var curRate = (+DL.store.state.settings.rate || 0.95).toFixed(1);
+
+    var filtered = all.filter(function (w) {
+      if (filter === "starred" && !w.starred) return false;
+      if (filter === "weak" && !(w.wrong > 0)) return false;
+      if (filter === "due" && !(w.due && w.due <= DL.store.today())) return false;
+      if (filter === "learned" && !w.seen) return false;
+      if (q) {
+        var en = (w.en || "").toLowerCase();
+        var ko = (w.ko || "").toLowerCase();
+        if (en.indexOf(q) === -1 && ko.indexOf(q) === -1) return false;
+      }
+      return true;
+    });
+
+    var counts = {
+      all: all.length,
+      starred: all.filter(function (w) { return !!w.starred; }).length,
+      weak: all.filter(function (w) { return (w.wrong || 0) > 0; }).length,
+      due: all.filter(function (w) { return w.due && w.due <= DL.store.today(); }).length,
+      learned: all.filter(function (w) { return (w.seen || 0) > 0; }).length
+    };
+
+    var limit = vState.limit || 30;
+    var displayed = filtered.slice(0, limit);
+    var hasMore = filtered.length > limit;
+
+    var tabs = [
+      { id: "all", label: "전체 (" + counts.all + ")" },
+      { id: "starred", label: "⭐ 북마크 (" + counts.starred + ")" },
+      { id: "weak", label: "⚠️ 오답/약점 (" + counts.weak + ")" },
+      { id: "due", label: "🔁 복습 대기 (" + counts.due + ")" },
+      { id: "learned", label: "✅ 학습 완료 (" + counts.learned + ")" }
+    ];
+
+    var tabsHTML = '<div class="vocab-tabs">' + tabs.map(function (t) {
+      return '<button class="vocab-tab ' + (filter === t.id ? "active" : "") + '" data-action="vocab:filter" data-filter="' + t.id + '">' + t.label + '</button>';
+    }).join("") + '</div>';
+
+    var cardsHTML = "";
+    if (!displayed.length) {
+      cardsHTML = '<div style="text-align:center;padding:32px 16px;color:var(--text-soft);grid-column:1/-1">' +
+        '<div style="font-size:32px;margin-bottom:8px">' + (filter === "starred" ? "⭐" : "🔍") + '</div>' +
+        '<div style="font-weight:800;font-size:15px">' +
+        (filter === "starred" ? "아직 북마크한 표현이 없어요." : filter === "weak" ? "오답 기록이 없어요! 아주 훌륭해요." : "검색 결과가 없어요.") +
+        '</div>' +
+        '<div style="font-size:12px;margin-top:4px">' +
+        (filter === "starred" ? "표현 카드의 별(☆) 아이콘을 누르면 나만의 단어장에 저장돼요." : "다른 검색어로 찾아보세요.") +
+        '</div></div>';
+    } else {
+      cardsHTML = displayed.map(function (w) {
+        var wrongBadge = w.wrong > 0 ? '<span class="pill-badge wrong">오답 ' + w.wrong + '회</span>' : '';
+        var statusBadge = w.seen > 0 ? '<span class="pill-badge ok">학습완료 Lv.' + (w.box + 1) + '</span>' : '<span class="pill-badge muted">미학습</span>';
+        var unitBadge = w.unitTitle ? '<span class="pill-badge">' + (w.unitEmoji || '📖') + ' ' + esc(w.unitTitle) + '</span>' : '';
+        return '<div class="vocab-card">' +
+          '<button class="star-btn ' + (w.starred ? "on" : "") + '" data-action="word:toggle-star" data-id="' + esc(w.id) + '" aria-label="북마크">' +
+          (w.starred ? "⭐" : "☆") + '</button>' +
+          '<div class="vocab-content">' +
+          '<div class="vocab-en-row">' +
+          '<span class="vocab-en">' + esc(w.en) + '</span>' +
+          '<button class="speak-btn plain" data-action="say" data-text="' + esc(w.en) + '" aria-label="듣기">' + icon("speaker") + '</button>' +
+          '</div>' +
+          '<div class="vocab-ko">' + esc(w.ko) + '</div>' +
+          '<div class="vocab-badges">' + unitBadge + statusBadge + wrongBadge + '</div>' +
+          '</div></div>';
+      }).join("");
+    }
+
+    var reviewFilteredBtn = "";
+    if (displayed.length > 0 && (filter === "starred" || filter === "weak" || filter === "due" || q)) {
+      reviewFilteredBtn = '<button class="btn soft sm wide" style="margin-bottom:12px" data-action="vocab:review-filtered">🎯 현재 목록 ' + filtered.length + '개 집중 복습하기</button>';
+    }
+
+    var moreBtn = hasMore
+      ? '<div style="text-align:center;margin-top:14px"><button class="btn ghost sm" data-action="vocab:more">더 보기 (' + (filtered.length - limit) + '개 남음)</button></div>'
+      : '';
+
+    return '<section class="vocab-section">' +
+      '<div class="section-head" style="margin-bottom:4px"><h2>📖 나의 단어장 & 오답 노트</h2><span class="sub">총 ' + all.length + '개 표현</span></div>' +
+      '<p style="margin:0 0 10px;font-size:13px;color:var(--text-soft)">자주 헷갈리는 표현은 별(⭐)을 눌러 북마크하고, 오답/약점 표현을 언제든 검색해 1:1로 복습할 수 있어요.</p>' +
+      '<div class="vocab-search-wrap">' +
+      '<div class="vocab-search-box">' +
+      '<span class="vocab-search-icon">🔍</span>' +
+      '<input type="search" class="vocab-search-input" data-input="vocab-search" placeholder="영어 단어, 문장 또는 한국어 검색..." value="' + esc(vState.query || "") + '" />' +
+      '</div>' +
+      '<button class="rate-badge" data-action="setting:rate-cycle" title="클릭하여 재생 속도 변경 (0.8x ➔ 1.0x ➔ 1.2x)">⚡ ' + curRate + 'x</button>' +
+      '</div>' +
+      tabsHTML +
+      reviewFilteredBtn +
+      '<div class="vocab-card-list">' + cardsHTML + '</div>' +
+      moreBtn +
+      '</section>';
+  }
+
+  function aiFreeTalkSectionHTML() {
+    var hasKeys = DL.gemini && DL.gemini.hasKey();
+    var keyCount = DL.gemini ? DL.gemini.getKeys().length : 0;
+    var scenarios = DL.gemini ? DL.gemini.SCENARIOS : [];
+
+    var scenCardsHTML = scenarios.map(function (scen) {
+      return '<button class="ai-scen-card" data-action="ai:start" data-id="' + scen.id + '">' +
+        '<div style="font-size:26px;flex:none">' + scen.emoji + '</div>' +
+        '<div style="flex:1"><div style="font-size:15px;font-weight:900;color:var(--text)">' + esc(scen.title) + '</div>' +
+        '<div style="font-size:12px;font-weight:700;color:var(--text-soft);margin-top:3px">' + esc(scen.desc) + '</div>' +
+        '<div style="display:flex;align-items:center;gap:6px;margin-top:8px">' +
+        '<span class="pill-badge" style="background:rgba(139,92,246,0.15);color:#7c3aed">' + esc(scen.role) + '</span>' +
+        '<span class="pill-badge">' + esc(scen.stageGoal) + '</span>' +
+        '</div></div>' +
+        icon("arrow") + '</button>';
+    }).join("");
+
+    return '<section class="section-block">' +
+      '<div class="ai-banner-card">' +
+      '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">' +
+      '<div style="display:flex;align-items:center;gap:12px">' +
+      '<div style="width:48px;height:48px;border-radius:14px;background:linear-gradient(135deg, #8b5cf6, #ec4899);color:#fff;display:grid;place-items:center;font-size:24px;box-shadow:0 3px 0 #7c3aed;flex:none">🤖</div>' +
+      '<div><div style="font-size:18px;font-weight:900;color:var(--text)">Gemini AI 1:1 자유 회화 (프리토킹)</div>' +
+      '<div style="font-size:12px;font-weight:700;color:var(--text-soft);margin-top:3px">정해진 대본 없이 자유롭게 영어로 대화하세요. 4단계 코칭과 실시간 문법 팁을 제공합니다.</div>' +
+      '</div></div>' +
+      '<div style="display:flex;align-items:center;gap:8px">' +
+      '<span class="ai-key-status ' + (hasKeys ? "active" : "warning") + '">' +
+      (hasKeys ? "🟢 " + keyCount + "개 키 활성 (자동 교체)" : "⚠️ API 키 등록 필요") +
+      '</span>' +
+      '<button class="btn ghost sm" data-action="ai:key-modal">🔑 키 설정</button>' +
+      '</div></div>' +
+      '<div class="ai-scenario-grid">' + scenCardsHTML + '</div>' +
+      '</div></section>';
+  }
+
   function practice() {
     var due = DL.store.dueWords(99);
     var weak = DL.store.weakWords(6);
     var level = DL.store.state.profile.level;
     var prompts = DL.speakingPrompts[level] || [];
     var lp = DL.store.overall();
+    var sits = DL.situations || [];
 
     var dueHTML = '<div class="card practice-card review-highlight">' +
       '<div class="card-title">' + icon("review") + " 오늘의 복습</div>" +
@@ -368,12 +502,40 @@ DL.views = (function () {
         '<button class="btn soft sm wide" style="margin-top:10px" data-action="review:weak">약점만 모아 복습</button>' : "") +
       "</div>";
 
-    return shell('<div class="page-head"><div class="page-kicker">Review Center</div><h1>복습 센터</h1>' +
-      "<p>배운 표현을 다시 꺼내 오늘의 기억으로 만들어요. 복습을 완료하면 하트도 1개 회복돼요.</p></div>" +
+    var sitCardsHTML = sits.map(function (s) {
+      return '<button class="sit-card" data-action="roleplay:start" data-id="' + s.id + '">' +
+        '<div class="sit-emoji">' + s.emoji + '</div>' +
+        '<div style="flex:1"><div class="sit-title">' + esc(s.title) + '</div>' +
+        '<div class="sit-sub">' + esc(s.desc) + '</div>' +
+        '<div class="sit-meta"><span class="sit-badge">' + s.level + '</span>' +
+        '<span class="sit-badge" style="background:var(--green-t);color:var(--green-d)">' + esc(s.partner.name) + ' (' + esc(s.partner.role) + ')</span></div>' +
+        '</div>' + icon("arrow") + '</button>';
+    }).join("");
+
+    return shell('<div class="page-head"><div class="page-kicker">Speaking & Review</div><h1>회화 & 복습 센터</h1>' +
+      "<p>원어민과 핑퐁 대화를 나누고, 3초 순발력 드릴로 입에 영어를 붙여요. 배운 표현은 SRS로 자동 복습됩니다.</p></div>" +
       '<div class="practice-grid">' + dueHTML + weakHTML + "</div>" +
+      vocabNotebookHTML() +
+      aiFreeTalkSectionHTML() +
+
+      '<section class="section-block">' +
+      '<div class="card" style="border:2px solid var(--orange);background:linear-gradient(135deg, var(--bg-card), rgba(255,150,0,0.06));padding:18px 20px;border-radius:20px">' +
+      '<div style="display:flex;align-items:center;gap:12px">' +
+      '<div style="width:48px;height:48px;border-radius:14px;background:var(--orange);color:#fff;display:grid;place-items:center;font-size:24px;box-shadow:0 3px 0 var(--orange-d);flex:none">⚡</div>' +
+      '<div style="flex:1"><div style="font-size:17px;font-weight:900;color:var(--text)">3초 순발력 스피킹 드릴</div>' +
+      '<div style="font-size:12px;font-weight:700;color:var(--text-soft);margin-top:3px">한국어 상황을 보고 3초 안에 입으로 영어가 바로 튀어나오게 훈련해요.</div>' +
+      '</div></div>' +
+      '<button class="btn primary wide big" style="background:var(--orange);border-color:var(--orange-d);box-shadow:0 4px 0 var(--orange-d);margin-top:14px" data-action="rapid:start">⚡ 3초 드릴 도전하기 (6문장)</button>' +
+      '</div></section>' +
+
+      '<section class="section-block"><div class="section-head"><h2>🎭 실전 핑퐁 롤플레잉</h2><span class="sub">' + sits.length + '개 테마 시뮬레이션</span></div>' +
+      "<p>원어민 캐릭터와 실제 대화하듯 음성으로 티키타카를 주고받아요. 대사 힌트와 원어민 발음, 내 목소리 다시 듣기를 지원해요.</p>" +
+      '<div class="situation-grid">' + sitCardsHTML + "</div></section>" +
 
       '<section class="section-block"><div class="section-head"><h2>말하기 연습</h2><span class="sub">' + DL.levelInfo(level).name + " · " + prompts.length + "개 주제</span></div>" +
-      "<p>마이크로 말하고 인식 결과를 확인해 보세요. 마이크가 없어도 직접 판단하며 연습할 수 있어요.</p>" +
+      "<p>" + (DL.speech.needsHttps && DL.speech.needsHttps()
+        ? "지금 주소(HTTP)에서는 마이크를 쓸 수 없어요. 직접 판단하며 연습하거나 HTTPS 주소로 접속해 보세요."
+        : "마이크로 말하면 단어별 발음 일치도(초록/주황/빨강)와 내 발음 다시 듣기가 제공됩니다.") + "</p>" +
       '<div class="speak-prompts">' + prompts.map(function (p, i) {
         return '<button class="prompt-row" data-action="speaking:start"><span class="no">' + (i + 1) + "</span>" +
           '<span style="flex:1"><span class="en">' + esc(p.en) + '</span><span class="ko">' + esc(p.ko) + "</span></span>" +
@@ -414,15 +576,15 @@ DL.views = (function () {
       '<div class="meta">' + DL.levelInfo(level).emoji + " " + DL.levelInfo(level).name + " " + DL.levelInfo(level).cefr + " · 전체 " + overall.pct + "% 완료</div>" +
       '<div class="level-switch">' + levelBtns + "</div></div></div>" +
 
-      '<div class="stats-grid">' +
       '<div class="stat-box"><div class="v">' + s.xp + '</div><div class="l">총 XP</div></div>' +
       '<div class="stat-box"><div class="v">' + overall.done + '</div><div class="l">완료 레슨</div></div>' +
       '<div class="stat-box"><div class="v">' + DL.store.learnedWords() + '</div><div class="l">학습 표현</div></div>' +
       '<div class="stat-box"><div class="v">' + DL.store.accuracy() + '%</div><div class="l">정확도</div></div>' +
       '<div class="stat-box"><div class="v">' + st.count + '</div><div class="l">연속 일수</div></div>' +
-      '<div class="stat-box"><div class="v">' + minutes + '</div><div class="l">학습 분</div></div>' +
-      '<div class="stat-box"><div class="v">' + dueCount() + '</div><div class="l">복습 대기</div></div>' +
+      '<div class="stat-box"><div class="v">' + (s.stats.roleplays || 0) + '</div><div class="l">롤플레잉 완주</div></div>' +
+      '<div class="stat-box"><div class="v">' + (s.stats.rapid || 0) + '</div><div class="l">3초 순발력 드릴</div></div>' +
       '<div class="stat-box"><div class="v">' + (s.stats.speaking || 0) + '</div><div class="l">말하기 횟수</div></div>' +
+      '<div class="stat-box"><div class="v">' + (s.stats.aiChats || 0) + '</div><div class="l">AI 프리토킹</div></div>' +
       "</div>" +
 
       '<div class="card calendar-card"><div class="cal-head"><div class="card-title">' + icon("clock") + " 최근 5주</div>" +
@@ -457,9 +619,15 @@ DL.views = (function () {
       settingRow("하트 사용", "틀리면 하트가 줄어들어요", "heartsOn") +
       settingRow("오디오 자동 재생", "문제가 나오면 문장을 읽어 줘요", "autoAudio") +
       voiceSettingRow(s) +
-      '<div class="setting-row"><div class="s-body"><div class="s-title">말하기 속도</div><div class="s-sub">학습에는 ‘보통’이 가장 자연스러워요</div></div>' +
-      '<div class="seg">' + [["0.8", "느리게"], ["0.95", "보통"], ["1.1", "빠르게"]].map(function (p) {
-        var on = Math.abs(+s.settings.rate - +p[0]) < 0.03;
+      '<div class="setting-row" style="flex-direction:column;align-items:stretch"><div style="display:flex;justify-content:space-between;align-items:center"><div class="s-body"><div class="s-title">말하기 속도 미세 조절</div><div class="s-sub">슬라이더나 프리셋으로 속도를 세밀하게 조절하세요</div></div>' +
+      '<span class="rate-value-pill" id="rateDisplay">' + (+s.settings.rate || 0.95).toFixed(2) + 'x</span></div>' +
+      '<div class="rate-slider-wrap">' +
+      '<span style="font-size:11px;font-weight:800;color:var(--text-soft)">0.6x</span>' +
+      '<input type="range" class="rate-slider" min="0.6" max="1.4" step="0.05" value="' + (+s.settings.rate || 0.95) + '" data-input="setting-rate" aria-label="말하기 속도 슬라이더" />' +
+      '<span style="font-size:11px;font-weight:800;color:var(--text-soft)">1.4x</span>' +
+      '</div>' +
+      '<div class="seg" style="margin-top:10px">' + [["0.75", "0.75x 초보"], ["0.9", "0.9x 편안"], ["1.0", "1.0x 보통"], ["1.15", "1.15x 자연"], ["1.3", "1.3x 원어민"]].map(function (p) {
+        var on = Math.abs(+s.settings.rate - +p[0]) < 0.04;
         return '<button class="' + (on ? "on" : "") + '" data-action="setting:rate" data-rate="' + p[0] + '">' + p[1] + "</button>";
       }).join("") + "</div></div>" +
       '<div class="setting-row"><div class="s-body"><div class="s-title">하루 목표</div><div class="s-sub">' + s.profile.dailyGoalXp + ' XP · ' + (s.profile.dailyGoalXp <= 20 ? "가볍게" : s.profile.dailyGoalXp <= 40 ? "꾸준하게" : "진하게") + '</div></div>' +
@@ -468,7 +636,16 @@ DL.views = (function () {
       }).join("") + "</div></div>" +
       '<div class="setting-row"><div class="s-body"><div class="s-title">테마</div><div class="s-sub">눈이 편한 다크 모드</div></div>' +
       '<button class="btn ghost sm" data-action="setting:theme">' + (s.settings.theme === "dark" ? "🌙 다크" : "☀️ 라이트") + "</button></div>" +
+      '<div class="setting-row"><div class="s-body"><div class="s-title">Gemini AI API 키</div>' +
+      '<div class="s-sub">' + (DL.gemini && DL.gemini.hasKey() ? DL.gemini.getKeys().length + "개의 키 등록됨 · 쿼터 소진 시 자동 로테이션" : "등록된 키 없음 · 무료 키를 등록해 무제한 프리토킹") + '</div></div>' +
+      '<button class="btn ghost sm" data-action="ai:key-modal">키 관리</button></div>' +
+      '<div class="setting-row"><div class="s-body"><div class="s-title">앱처럼 사용</div><div class="s-sub">홈 화면에 추가하면 전체 화면으로 열려요.</div></div>' +
+      '<button class="btn ghost sm" data-action="app:install">추가</button></div>' +
+      '<div class="setting-row backup-row"><div class="s-body"><div class="s-title">학습 기록 백업</div><div class="s-sub">JSON 파일로 저장하거나 불러올 수 있어요.</div></div>' +
+      '<div class="backup-actions"><button class="btn ghost sm" data-action="profile:export">저장</button>' +
+      '<button class="btn ghost sm" data-action="profile:import">불러오기</button></div></div>' +
       "</div>" +
+      '<input type="file" id="importFile" accept="application/json,.json" class="hidden" />' +
       '<button class="danger-link" data-action="profile:reset">학습 기록 초기화</button>' +
       '<div class="card-sub" style="margin-top:8px">' + (DL.store.memoryOnly ? "⚠️ 브라우저가 저장을 막아 이번 세션에만 기록됩니다." : "진행 상황은 localStorage에 저장됩니다.") + "</div>" +
       "</div></section>" +
@@ -511,6 +688,7 @@ DL.views = (function () {
     var inner = "";
     if (m.type === "guide") inner = guideModal(m.unitId);
     else if (m.type === "level") inner = levelModal();
+    else if (m.type === "geminiKeys") inner = geminiKeysModal();
     else if (m.type === "reset") {
       inner = '<div class="modal-top"><div><h2>학습 기록 초기화</h2><p>이 작업은 되돌릴 수 없어요.</p></div>' +
         '<button class="icon-btn" data-action="modal:close" aria-label="닫기">' + icon("close") + "</button></div>" +
@@ -519,6 +697,116 @@ DL.views = (function () {
         '<button class="btn ghost wide" data-action="modal:close">취소</button></div>';
     }
     return '<div class="modal-root"><div class="modal-backdrop" data-action="modal:close"></div><div class="modal-card">' + inner + "</div></div>";
+  }
+
+  function geminiKeysModal() {
+    var rawKeys = DL.gemini ? DL.gemini.getKeys() : [];
+    var stats = DL.gemini ? DL.gemini.getStats() : {};
+    var keysText = rawKeys.join("\n");
+    var statsKeys = Object.keys(stats);
+    var statsHTML = statsKeys.map(function (k) {
+      var s = stats[k];
+      return '<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:4px 0;border-bottom:1px solid var(--line)">' +
+        '<span><code>' + k + '</code></span>' +
+        '<span style="color:var(--text-soft)">' + s.calls + '회 호출 · ' + s.tokens + ' 토큰' + (s.errors ? ' · <span style="color:#ef4444">' + s.errors + ' 오류</span>' : '') + '</span>' +
+        '</div>';
+    }).join("");
+
+    return '<div class="modal-top"><div><div class="unit-kicker" style="color:#8b5cf6">Gemini Multi-Key Failover</div>' +
+      '<h2>🤖 Gemini API 키 관리</h2>' +
+      '<p>무료 API 키를 여러 개 등록하면, 쿼터 소진 시 자동으로 다음 키로 교체되어 끊김 없이 무제한으로 대화할 수 있어요.</p></div>' +
+      '<button class="icon-btn" data-action="modal:close" aria-label="닫기">' + icon("close") + '</button></div>' +
+      '<div style="margin-top:14px">' +
+      '<label style="display:block;font-size:13px;font-weight:900;color:var(--text);margin-bottom:6px">API 키 목록 (한 줄에 하나씩 입력):</label>' +
+      '<textarea id="geminiKeyTextarea" class="key-textarea" placeholder="AIzaSy... (첫 번째 키)&#10;AIzaSy... (두 번째 키)&#10;AIzaSy... (세 번째 키)">' + esc(keysText) + '</textarea>' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;flex-wrap:wrap;gap:8px">' +
+      '<a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener" style="font-size:12px;font-weight:800;color:#8b5cf6;text-decoration:none">🔗 Google AI Studio에서 무료 키 발급받기 →</a>' +
+      '<button class="btn ghost sm" data-action="ai:test-key">🧪 첫 번째 키 테스트</button>' +
+      '</div></div>' +
+      (statsHTML ? '<div style="margin-top:16px;background:var(--bg-soft);padding:10px 14px;border-radius:12px"><div style="font-size:12px;font-weight:800;color:var(--text-soft);margin-bottom:6px">키별 사용 통계:</div>' + statsHTML + '</div>' : '') +
+      '<div class="heart-actions" style="margin-top:16px">' +
+      '<button class="btn primary wide big" style="background:#8b5cf6;border-color:#7c3aed;box-shadow:0 4px 0 #7c3aed" data-action="ai:save-keys">저장하기</button>' +
+      '<button class="btn ghost wide" data-action="modal:close">닫기</button></div>';
+  }
+
+  function aiChatView() {
+    var sess = DL.aiSession;
+    if (!sess) return '<div class="lesson-shell" style="padding:40px;text-align:center">대화 세션이 없습니다.<br><button class="btn primary" style="margin-top:14px" data-action="nav" data-screen="practice">회화 센터로 돌아가기</button></div>';
+
+    var scen = sess.scenario;
+    var stages = DL.gemini.STAGES;
+    var currentStage = sess.stage || 1;
+    var curRate = (+DL.store.state.settings.rate || 0.95).toFixed(1);
+
+    var stepperHTML = '<div class="stage-stepper">' + stages.map(function (st) {
+      return '<div class="stage-step ' + (st.no === currentStage ? "active" : "") + '" title="' + esc(st.desc) + '">' +
+        st.no + '. ' + esc(st.name.split(" ")[0]) + '</div>';
+    }).join("") + '</div>';
+
+    var messagesHTML = sess.messages.map(function (msg, idx) {
+      if (msg.role === "user") {
+        return '<div class="ai-bubble user">' +
+          '<div class="ai-msg">' + esc(msg.text) + '</div>' +
+          '<div class="ai-avatar" style="background:var(--blue);box-shadow:0 2px 0 var(--blue-d)">👤</div>' +
+          '</div>';
+      } else {
+        var correctionHTML = msg.correction
+          ? '<div class="correction-box">💡 <b>피드백 팁:</b> ' + esc(msg.correction) + '</div>'
+          : '';
+        var chipsHTML = (msg.suggestedReplies && msg.suggestedReplies.length)
+          ? '<div class="suggested-chips">' + msg.suggestedReplies.map(function (r) {
+              return '<button class="suggested-chip" data-action="ai:reply-chip" data-text="' + esc(r) + '">💬 ' + esc(r) + '</button>';
+            }).join("") + '</div>'
+          : '';
+        var koHTML = msg.showKo && msg.ko
+          ? '<div style="margin-top:6px;font-size:12.5px;color:var(--text-soft);font-weight:700">' + esc(msg.ko) + '</div>'
+          : '';
+
+        return '<div class="ai-bubble">' +
+          '<div class="ai-avatar">🤖</div>' +
+          '<div class="ai-msg">' +
+          '<div style="display:flex;align-items:center;justify-content:space-between;gap:6px">' +
+          '<span>' + esc(msg.en) + '</span>' +
+          '<div style="display:flex;gap:4px;flex:none">' +
+          '<button class="speak-btn plain" data-action="say" data-text="' + esc(msg.en) + '" aria-label="듣기">' + icon("speaker") + '</button>' +
+          '<button class="speak-btn plain" style="font-size:11px;font-weight:900" data-action="ai:toggle-ko" data-idx="' + idx + '" title="한국어 번역 토글">' + (msg.showKo ? "한" : "번역") + '</button>' +
+          '</div></div>' +
+          koHTML + correctionHTML + chipsHTML +
+          '</div></div>';
+      }
+    }).join("");
+
+    var loadingHTML = sess.loading
+      ? '<div class="ai-bubble"><div class="ai-avatar">🤖</div>' +
+        '<div class="ai-msg" style="display:flex;align-items:center;gap:8px">' +
+        '<span style="font-size:12px;color:var(--text-soft);font-weight:800">답변을 생각하고 있어요</span>' +
+        '<div class="typing-dots"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></div>' +
+        '</div></div>'
+      : '';
+
+    return '<div class="ai-chat-shell">' +
+      '<div class="ai-chat-top">' +
+      '<button class="lesson-close" data-action="ai:quit" aria-label="나가기">' + icon("close") + '</button>' +
+      stepperHTML +
+      '<button class="rate-badge" data-action="setting:rate-cycle" title="배속 변경">⚡ ' + curRate + 'x</button>' +
+      '</div>' +
+
+      '<div class="ai-stream" id="aiStream">' +
+      '<div style="text-align:center;padding:10px 0 16px">' +
+      '<div style="font-size:24px">' + scen.emoji + '</div>' +
+      '<div style="font-size:16px;font-weight:900;color:var(--text);margin-top:2px">' + esc(scen.title) + '</div>' +
+      '<div style="font-size:12px;font-weight:700;color:var(--text-soft);margin-top:2px">파트너: ' + esc(scen.role) + ' · 4단계 프리토킹</div>' +
+      '</div>' +
+      messagesHTML + loadingHTML +
+      '</div>' +
+
+      '<div class="ai-foot-bar">' +
+      '<div class="ai-input-wrap">' +
+      '<button class="mic-btn ' + (sess.mic === "recording" ? "recording" : "") + '" style="width:44px;height:44px;flex:none" data-action="ai:mic" aria-label="음성으로 말하기">' + icon("mic") + '</button>' +
+      '<input type="text" id="aiInput" class="ai-text-input" placeholder="' + (sess.mic === "recording" ? "듣고 있어요… 영어로 말씀하세요!" : "영어로 메시지를 입력하거나 마이크를 누르세요...") + '" value="' + esc(sess.draft || "") + '" data-input="ai-draft" />' +
+      '<button class="btn primary" style="background:#8b5cf6;border-color:#7c3aed;box-shadow:0 3px 0 #7c3aed;padding:0 18px;height:44px;flex:none" data-action="ai:send">전송</button>' +
+      (sess.messages.length >= 4 ? '<button class="btn soft sm" style="height:44px;flex:none" data-action="ai:finish">완료 🎉</button>' : '') +
+      '</div></div></div>';
   }
 
   function guideModal(unitId) {
@@ -547,7 +835,9 @@ DL.views = (function () {
         return '<div class="g-line"><b>' + esc(l.who) + "</b><span>" + esc(l.en) + "<em>" + esc(l.ko) + "</em></span>" +
           '<button class="speak-btn plain" style="padding:4px;border:0;background:none" data-action="say" data-text="' + esc(l.en) + '" aria-label="듣기">' + icon("speaker") + "</button></div>";
       }).join("") + "</div></div>" +
-      '<div class="heart-actions" style="margin-top:16px"><button class="btn primary wide big" data-action="guide:start" data-id="' + firstIncomplete.id + '">' +
+      '<div class="heart-actions" style="margin-top:16px">' +
+      '<button class="btn blue wide" data-action="roleplay:start" data-id="' + u.id + '-d0">🎭 이 대화로 롤플레잉 시작하기</button>' +
+      '<button class="btn primary wide big" data-action="guide:start" data-id="' + firstIncomplete.id + '">' +
       (up.done ? (up.done === up.total ? "이 유닛 다시 학습하기" : "이어서 학습하기") : "이 유닛 시작하기") + "</button>" +
       '<button class="btn ghost wide" data-action="modal:close">닫기</button></div>';
   }
@@ -568,7 +858,7 @@ DL.views = (function () {
 
   return {
     welcome: welcome, goal: goal, levelPick: levelPick, placement: placement,
-    home: home, practice: practice, profile: profile,
+    home: home, practice: practice, profile: profile, aichat: aiChatView,
     modal: modalHTML
   };
 })();
