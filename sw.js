@@ -1,5 +1,5 @@
 /* DuoLang service worker — offline shell with network-first updates */
-const CACHE = "duolang-v5";
+const CACHE = "duolang-v6";
 const SHELL = [
   "./",
   "./index.html",

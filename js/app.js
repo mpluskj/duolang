@@ -12,8 +12,7 @@ window.DL = window.DL || {};
     modal: null,
     onboard: { goal: 30, recommended: null },
     placement: { idx: 0, score: 0, answered: false, selected: null, done: false },
-    vocab: { query: "", filter: "all", limit: 30 },
-    dismissInstallBanner: false
+    vocab: { query: "", filter: "all", limit: 30 }
   };
 
   function applyTheme() {
@@ -520,11 +519,6 @@ window.DL = window.DL || {};
         DL.speech.say("Hi! Nice to meet you. Let's practice English together.");
         return;
 
-      case "app:dismiss-install":
-        DL.ui.dismissInstallBanner = true;
-        render();
-        return;
-
       case "app:install":
         if (installPrompt) {
           var promptEvent = installPrompt;
@@ -532,14 +526,13 @@ window.DL = window.DL || {};
           promptEvent.prompt();
           if (promptEvent.userChoice && promptEvent.userChoice.then) {
             promptEvent.userChoice.then(function (choice) {
-              if (choice && choice.outcome === "accepted") toast("홈 화면에 추가했어요. 이제 앱처럼 열 수 있어요.");
+              if (choice && choice.outcome === "accepted") toast("홈 화면에 추가했어요.");
             });
           }
         } else if (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) {
           toast("이미 앱처럼 실행 중이에요.");
         } else {
-          DL.ui.modal = { type: "installGuide" };
-          render();
+          toast("브라우저 메뉴에서 ‘앱 설치’ 또는 ‘홈 화면에 추가’를 선택하세요.");
         }
         return;
 
