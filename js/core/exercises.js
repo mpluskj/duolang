@@ -196,6 +196,7 @@ DL.ex = (function () {
       type: "speak",
       prompt: "큰 소리로 따라 말해 보세요.",
       target: target, ko: ko, hint: hint || "",
+      audio: target,
       explain: target + "  ·  " + ko
     };
   }

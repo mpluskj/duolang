@@ -259,6 +259,17 @@ DL.lesson = (function () {
     DL.render();
   }
 
+  function toggleMic() {
+    if (!S || S.answered) return;
+    if (S.mic === "recording") {
+      DL.speech.stopListening();
+      S.mic = "idle";
+      DL.render();
+      return;
+    }
+    startMic();
+  }
+
   function startMic() {
     if (!S || S.answered) return;
     var e = cur();
@@ -279,7 +290,23 @@ DL.lesson = (function () {
     }
     S.micError = "";
     DL.speech.listen({
-      onStart: function () { if (S) { S.mic = "recording"; DL.render(); } },
+      target: targetText,
+      onStart: function () {
+        if (S) {
+          S.mic = "recording";
+          S.heard = "";
+          DL.render();
+        }
+      },
+      onInterim: function (text) {
+        if (S && S.mic === "recording") {
+          S.heard = text;
+          var hintEl = document.querySelector(".mic-hint");
+          if (hintEl) {
+            hintEl.textContent = '인식 중: "' + text + '"';
+          }
+        }
+      },
       onResult: function (text) {
         if (!S || !cur()) return;
         S.mic = "idle";
@@ -297,11 +324,29 @@ DL.lesson = (function () {
         }
         DL.render();
       },
+      onNoSpeech: function () {
+        if (!S) return;
+        S.mic = "idle";
+        toast("음성이 들리지 않았어요. 마이크 버튼을 누르고 다시 말해 보세요.");
+        DL.render();
+      },
+      onEnd: function () {
+        if (S && S.mic === "recording") {
+          S.mic = "idle";
+          DL.render();
+        }
+      },
       onError: function (err) {
         if (!S) return;
         S.mic = "idle";
         S.micError = err;
-        toast(err === "not-allowed" ? "마이크 권한을 허용하면 발음을 확인할 수 있어요." : "음성을 인식하지 못했어요. 다시 시도해 보세요.");
+        if (err === "no-speech") {
+          toast("음성이 감지되지 않았어요. 다시 시도해 보세요.");
+        } else if (err === "not-allowed") {
+          toast("마이크 권한을 허용하면 발음을 확인할 수 있어요.");
+        } else {
+          toast("음성을 인식하지 못했어요. 다시 시도해 보세요.");
+        }
         DL.render();
       }
     });
@@ -309,6 +354,7 @@ DL.lesson = (function () {
 
   function advance() {
     if (!S) return;
+    if (DL.speech && DL.speech.unlockAudio) DL.speech.unlockAudio();
     if (S.heartsBlocked) { S.blocked = true; DL.render(); return; }
     if (S.mode === "roleplay") {
       var prev = cur();
@@ -859,7 +905,7 @@ DL.lesson = (function () {
       case "lesson:unbuild": unbuildToken(+ds.pos); return true;
       case "lesson:check": checkAnswer(); return true;
       case "lesson:continue": advance(); return true;
-      case "lesson:mic": startMic(); return true;
+      case "lesson:mic": toggleMic(); return true;
       case "lesson:selfpass": selfPass(); return true;
       case "lesson:play-voice": DL.speech.playUserVoice(); return true;
       case "roleplay:peek": S.peek = !S.peek; DL.render(); return true;
@@ -948,7 +994,7 @@ DL.lesson = (function () {
 
     var e = cur();
     if (!e) return;
-    var text = e.audio || (e.type === "roleplay" && e.context.length ? e.context[e.context.length - 1].en : null);
+    var text = e.audio || (e.type === "speak" ? e.target : null) || (e.type === "roleplay" && e.context && e.context.length ? e.context[e.context.length - 1].en : null);
     if (!text) return;
     if (!DL.store.state.settings.autoAudio) return;
     var key = e.uid + "-auto";
@@ -956,7 +1002,7 @@ DL.lesson = (function () {
     S.spoken[key] = true;
     setTimeout(function () {
       if (S && !S.answered) DL.speech.say(text);
-    }, 350);
+    }, 200);
   }
 
   function active() { return S; }

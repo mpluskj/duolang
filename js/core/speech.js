@@ -306,53 +306,104 @@ DL.speech = (function () {
     var Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!Rec) { if (handlers.onUnsupported) handlers.onUnsupported(); return false; }
     stopListening();
-    initMediaRecording();
     try {
       recognition = new Rec();
       recognition.lang = "en-US";
-      recognition.interimResults = false;
+      recognition.interimResults = true;
       recognition.maxAlternatives = 3;
       recognition.continuous = false;
       listening = true;
       var done = false;
+      var finalTranscript = "";
+      var interimTranscript = "";
+      var silenceTimer = null;
+      var maxTimer = null;
 
-      recognition.onstart = function () { if (handlers.onStart) handlers.onStart(); };
-      recognition.onresult = function (ev) {
-        var best = "";
-        try {
-          var res = ev.results[0];
-          for (var i = 0; i < res.length; i++) {
-            if (!best || (res[i].confidence || 0) > (res[0].confidence || 0)) best = res[i].transcript;
-          }
-          if (!best) best = res[0][0].transcript;
-        } catch (e) {}
+      function clearTimers() {
+        if (silenceTimer) { clearTimeout(silenceTimer); silenceTimer = null; }
+        if (maxTimer) { clearTimeout(maxTimer); maxTimer = null; }
+      }
+
+      function finishWith(text) {
+        if (done) return;
         done = true;
         listening = false;
-        finishMediaRecording(function () {
-          if (handlers.onResult) handlers.onResult(best || "");
-        });
+        clearTimers();
+        try { recognition.stop(); } catch (e) {}
+        var clean = String(text || "").trim();
+        if (handlers.onResult) handlers.onResult(clean);
+        if (handlers.onFinal) handlers.onFinal(clean);
+      }
+
+      recognition.onstart = function () {
+        if (handlers.onStart) handlers.onStart();
+        maxTimer = setTimeout(function () {
+          if (listening && !done) {
+            try { recognition.stop(); } catch (e) {}
+          }
+        }, 7500);
       };
+
+      recognition.onresult = function (ev) {
+        interimTranscript = "";
+        for (var i = ev.resultIndex; i < ev.results.length; ++i) {
+          var res = ev.results[i];
+          if (res.isFinal) {
+            finalTranscript += " " + res[0].transcript;
+          } else {
+            interimTranscript += " " + res[0].transcript;
+          }
+        }
+        var heardSoFar = (finalTranscript + " " + interimTranscript).replace(/\s+/g, " ").trim();
+        if (handlers.onInterim) handlers.onInterim(heardSoFar);
+
+        if (heardSoFar.length > 0) {
+          if (silenceTimer) clearTimeout(silenceTimer);
+          var target = handlers.target || "";
+          var sim = target ? similarity(target, heardSoFar) : 0;
+          var waitMs = sim >= 0.65 ? 500 : 1000;
+          silenceTimer = setTimeout(function () {
+            finishWith(heardSoFar);
+          }, waitMs);
+        }
+      };
+
       recognition.onerror = function (ev) {
-        done = true; listening = false;
-        finishMediaRecording(function () {
-          if (handlers.onError) handlers.onError(ev && ev.error ? ev.error : "error");
-        });
-      };
-      recognition.onend = function () {
+        clearTimers();
+        var err = ev && ev.error ? ev.error : "error";
+        if (err === "no-speech") {
+          var current = (finalTranscript + " " + interimTranscript).replace(/\s+/g, " ").trim();
+          if (current) {
+            finishWith(current);
+            return;
+          }
+        }
+        done = true;
         listening = false;
-        finishMediaRecording(function () {
-          if (!done && handlers.onEnd) handlers.onEnd();
-          if (handlers.onDone) handlers.onDone();
-        });
+        if (handlers.onError) handlers.onError(err);
       };
+
+      recognition.onend = function () {
+        clearTimers();
+        listening = false;
+        if (!done) {
+          var current = (finalTranscript + " " + interimTranscript).replace(/\s+/g, " ").trim();
+          if (current) {
+            finishWith(current);
+          } else {
+            if (handlers.onNoSpeech) handlers.onNoSpeech();
+            else if (handlers.onEnd) handlers.onEnd();
+          }
+        } else {
+          if (handlers.onEnd) handlers.onEnd();
+        }
+        if (handlers.onDone) handlers.onDone();
+      };
+
       recognition.start();
-      setTimeout(function () {
-        if (listening) { try { recognition.stop(); } catch (e) {} }
-      }, 9000);
       return true;
     } catch (e) {
       listening = false;
-      finishMediaRecording();
       if (handlers.onError) handlers.onError("not-allowed");
       return false;
     }
@@ -363,7 +414,6 @@ DL.speech = (function () {
       try { recognition.abort(); } catch (e) {}
     }
     listening = false;
-    finishMediaRecording();
   }
 
   function isListening() { return listening; }
